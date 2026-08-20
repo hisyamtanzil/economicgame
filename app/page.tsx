@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   advanceQuarter,
   buildEndgameReport,
@@ -15,8 +15,10 @@ import {
 } from "./game";
 import { ADVISORS, getCampaignProfile } from "./campaign-content";
 import { parseSavedRun, RUN_STORAGE_KEY, type SavedRun as Run } from "./run-storage";
+import { POLICY_HINTS, SCORE_BENCHMARKS, TUTORIAL_STORAGE_KEY, TUTORIAL_STEPS } from "./tutorial-content";
 
 type CommandTab = "command" | "treasury" | "society" | "intelligence";
+type ActiveOverlay = "briefing" | "guide" | null;
 
 const taxLabels = ["Entry income", "Basic income", "Skilled income", "Professional income", "High wealth"];
 const tabLabels: Record<CommandTab, string> = {
@@ -41,6 +43,12 @@ function campaignStyle(accent: string): CSSProperties {
 function toneFor(value: number, warning: number, danger: number, inverse = false) {
   if (inverse) return value >= danger ? "critical" : value >= warning ? "caution" : "positive";
   return value <= danger ? "critical" : value <= warning ? "caution" : "positive";
+}
+
+function getFocusableElements(container: HTMLElement) {
+  return Array.from(container.querySelectorAll<HTMLElement>(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )).filter((element) => element.getAttribute("aria-hidden") !== "true");
 }
 
 function RangeControl({
@@ -185,11 +193,42 @@ export default function Home() {
   const [run, setRun] = useState<Run | null>(null);
   const [policy, setPolicy] = useState<PolicyPackage | null>(null);
   const [activeTab, setActiveTab] = useState<CommandTab>("command");
-  const [briefingOpen, setBriefingOpen] = useState(false);
+  const [activeOverlay, setActiveOverlay] = useState<ActiveOverlay>(null);
+  const [guideStepIndex, setGuideStepIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const briefingCloseRef = useRef<HTMLButtonElement>(null);
+  const guideCloseRef = useRef<HTMLButtonElement>(null);
+  const briefingDialogRef = useRef<HTMLElement>(null);
+  const guideDialogRef = useRef<HTMLElement>(null);
   const endTurnRef = useRef<HTMLButtonElement>(null);
+  const commandTabRef = useRef<HTMLButtonElement>(null);
+  const overlayReturnFocusRef = useRef<HTMLElement | null>(null);
+  const automaticGuideRef = useRef(false);
+
+  const restoreOverlayFocus = useCallback((fallback: HTMLElement | null) => {
+    const returnTarget = overlayReturnFocusRef.current;
+    overlayReturnFocusRef.current = null;
+    window.setTimeout(() => {
+      if (returnTarget?.isConnected) returnTarget.focus();
+      else fallback?.focus();
+    }, 0);
+  }, []);
+
+  const closeBriefing = useCallback(() => {
+    setActiveOverlay(null);
+    restoreOverlayFocus(endTurnRef.current);
+  }, [restoreOverlayFocus]);
+
+  const closeGuide = useCallback(() => {
+    window.localStorage.setItem(TUTORIAL_STORAGE_KEY, "complete");
+    const wasAutomatic = automaticGuideRef.current;
+    const fallback = wasAutomatic ? commandTabRef.current : null;
+    if (wasAutomatic) setActiveTab("command");
+    automaticGuideRef.current = false;
+    setActiveOverlay(null);
+    restoreOverlayFocus(fallback);
+  }, [restoreOverlayFocus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,17 +254,41 @@ export default function Home() {
   }, [run]);
 
   useEffect(() => {
-    if (!briefingOpen) return;
-    briefingCloseRef.current?.focus();
+    if (!activeOverlay) return;
+    const dialog = activeOverlay === "briefing" ? briefingDialogRef.current : guideDialogRef.current;
+    const initialFocus = activeOverlay === "briefing" ? briefingCloseRef.current : guideCloseRef.current;
+    const focusTimer = window.setTimeout(() => initialFocus?.focus(), 0);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setBriefingOpen(false);
-        window.setTimeout(() => endTurnRef.current?.focus(), 0);
+        event.preventDefault();
+        if (activeOverlay === "guide") closeGuide();
+        else closeBriefing();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const focusable = getFocusableElements(dialog);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (currentIndex <= 0 || document.activeElement === dialog)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (currentIndex === -1 || currentIndex === focusable.length - 1)) {
+        event.preventDefault();
+        first.focus();
       }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [briefingOpen]);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [activeOverlay, closeBriefing, closeGuide]);
 
   const scenario = run ? getScenario(run.scenarioId) : null;
   const state = run?.state ?? null;
@@ -237,6 +300,7 @@ export default function Home() {
   function startScenario(scenarioId: string) {
     const selected = getScenario(scenarioId);
     const initial = createInitialState(selected);
+    const shouldOpenGuide = window.localStorage.getItem(TUTORIAL_STORAGE_KEY) !== "complete";
     setRun({
       scenarioId: selected.id,
       seed: selected.seed,
@@ -248,7 +312,14 @@ export default function Home() {
     });
     setPolicy(policyForScenario(selected));
     setActiveTab("command");
-    setBriefingOpen(false);
+    setGuideStepIndex(0);
+    if (shouldOpenGuide) {
+      overlayReturnFocusRef.current = null;
+      automaticGuideRef.current = true;
+      setActiveOverlay("guide");
+    } else {
+      setActiveOverlay(null);
+    }
   }
 
   function reset() {
@@ -256,12 +327,15 @@ export default function Home() {
     setRun(null);
     setPolicy(null);
     setActiveTab("command");
-    setBriefingOpen(false);
+    setActiveOverlay(null);
+    automaticGuideRef.current = false;
+    overlayReturnFocusRef.current = null;
   }
 
-  function resolveQuarter() {
-    if (!run || !policy || validationErrors.length) return;
+  function resolveQuarter(trigger?: HTMLElement) {
+    if (!run || !policy || validationErrors.length || activeOverlay) return;
     const result = advanceQuarter(run.state, policy, run.seed);
+    overlayReturnFocusRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setRun({
       ...run,
       state: result.state,
@@ -270,12 +344,27 @@ export default function Home() {
       lastResult: result,
     });
     setPolicy(result.effectivePolicy);
-    setBriefingOpen(true);
+    if (result.crisis || result.state.quarter >= 40) {
+      overlayReturnFocusRef.current = null;
+      setActiveOverlay(null);
+    } else {
+      setActiveOverlay("briefing");
+    }
   }
 
-  function closeBriefing() {
-    setBriefingOpen(false);
-    window.setTimeout(() => endTurnRef.current?.focus(), 0);
+  function openGuide(trigger?: HTMLElement) {
+    if (activeOverlay) return;
+    overlayReturnFocusRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    automaticGuideRef.current = false;
+    setGuideStepIndex(0);
+    setActiveOverlay("guide");
+  }
+
+  function goToGuideStep(nextIndex: number) {
+    const boundedIndex = Math.max(0, Math.min(TUTORIAL_STEPS.length - 1, nextIndex));
+    const nextStep = TUTORIAL_STEPS[boundedIndex];
+    setGuideStepIndex(boundedIndex);
+    setActiveTab(nextStep.tab);
   }
 
   function copyCode() {
@@ -289,6 +378,57 @@ export default function Home() {
   function updatePolicy(updater: (current: PolicyPackage) => PolicyPackage) {
     setPolicy((current) => (current ? updater(current) : current));
   }
+
+  const guideStep = TUTORIAL_STEPS[guideStepIndex] ?? TUTORIAL_STEPS[0];
+  const guideOverlay = activeOverlay === "guide" && guideStep ? (
+    <div className="guide-backdrop">
+      <section
+        ref={guideDialogRef}
+        className="guide-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="guide-title"
+        aria-describedby="guide-summary"
+        tabIndex={-1}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">Mission guide</p>
+            <span className="guide-step-count">Step {guideStepIndex + 1} of {TUTORIAL_STEPS.length}</span>
+          </div>
+          <button ref={guideCloseRef} type="button" className="dialog-close" aria-label="Close guide" onClick={closeGuide}>×</button>
+        </header>
+        <div className="guide-progress" aria-label={`Guide progress: step ${guideStepIndex + 1} of ${TUTORIAL_STEPS.length}`}>
+          <ol aria-hidden="true">
+            {TUTORIAL_STEPS.map((step, index) => <li className={index <= guideStepIndex ? "complete" : ""} key={step.id} />)}
+          </ol>
+        </div>
+        <div className="guide-lead" aria-live="polite" aria-atomic="true">
+          <p className="eyebrow">{guideStep.eyebrow}</p>
+          <h2 id="guide-title">{guideStep.title}</h2>
+          <p id="guide-summary">{guideStep.summary}</p>
+        </div>
+        <section className="guide-points" aria-label="Key guidance">
+          <p className="eyebrow">What to remember</p>
+          <ul>{guideStep.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>
+        </section>
+        {guideStep.id === "mandate" ? (
+          <p className="guide-mandate-note">
+            {scenario ? <><b>{scenario.shortName} mandate:</b> {scenario.mandate}</> : "Choose a nation to see its starting conditions and mandate. All three use the same scorecard."}
+          </p>
+        ) : null}
+        <footer className="guide-actions">
+          <button type="button" className="guide-skip" onClick={closeGuide}>Skip guide</button>
+          <div>
+            <button type="button" className="guide-back" disabled={guideStepIndex === 0} onClick={() => goToGuideStep(guideStepIndex - 1)}>Back</button>
+            <button type="button" className="primary-action" onClick={() => guideStepIndex === TUTORIAL_STEPS.length - 1 ? closeGuide() : goToGuideStep(guideStepIndex + 1)}>
+              {guideStepIndex === TUTORIAL_STEPS.length - 1 ? "Begin governing" : "Continue"} <span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
+  ) : null;
 
   if (!loaded) {
     return (
@@ -307,7 +447,10 @@ export default function Home() {
             <span className="wordmark-seal">N</span>
             <span><b>Nations</b> in Balance</span>
           </div>
-          <div className="landing-status"><i /> Strategic governance simulation</div>
+          <div className="landing-actions">
+            <button type="button" className="guide-button" onClick={(event) => openGuide(event.currentTarget)}>How to play</button>
+            <div className="landing-status"><i /> Strategic governance simulation</div>
+          </div>
         </header>
 
         <section className="landing-hero">
@@ -367,6 +510,7 @@ export default function Home() {
             })}
           </div>
         </section>
+        {guideOverlay}
       </main>
     );
   }
@@ -398,6 +542,21 @@ export default function Home() {
           <MetricCard label="Inclusion" value={`${report.scores.inclusion}/25`} note={`${signed(run.baseline.gini - state.gini, 3)} Gini change`} tone={report.scores.inclusion >= 18 ? "positive" : "caution"} />
           <MetricCard label="Development" value={`${report.scores.development}/25`} note={`${signed(state.hdi - run.baseline.hdi, 3)} HDI change`} tone={report.scores.development >= 18 ? "positive" : "caution"} />
           <MetricCard label="Stability" value={`${report.scores.stability}/25`} note={`${percent(state.inflation)} inflation · ${percent(state.debtGDP)} debt`} tone={report.scores.stability >= 18 ? "positive" : "caution"} />
+        </section>
+        <section className="score-benchmarks" aria-label="Mandate score benchmarks">
+          <div>
+            <p className="eyebrow">Mandate benchmark</p>
+            <p>Four pillars are worth 25 points each. A crisis ends the mandate at zero.</p>
+          </div>
+          <div className="benchmark-list">
+            {SCORE_BENCHMARKS.map((benchmark) => (
+              <article key={benchmark.id}>
+                <b>{benchmark.score}</b>
+                <span>{benchmark.label}</span>
+                <small>{benchmark.detail}</small>
+              </article>
+            ))}
+          </div>
         </section>
         <section className="report-details">
           <article>
@@ -450,9 +609,10 @@ export default function Home() {
         </div>
         <div className="ribbon-actions">
           <div className="quarter-marker"><span>Quarter</span><b>{state.quarter + 1} <i>/ 40</i></b></div>
+          <button type="button" className="guide-button ribbon-guide" onClick={(event) => openGuide(event.currentTarget)}>Guide</button>
           <button className="code-button" type="button" onClick={copyCode}>{copied ? "Run ID copied" : shareCode}</button>
           <button type="button" className="quiet-button exit-button" onClick={reset}>Exit</button>
-          <button ref={endTurnRef} className="end-turn-button" type="button" disabled={!policyReady} onClick={resolveQuarter} aria-describedby="policy-status">
+          <button ref={endTurnRef} className="end-turn-button" type="button" disabled={!policyReady} onClick={(event) => resolveQuarter(event.currentTarget)} aria-describedby="policy-status">
             <span>End quarter</span><b>Resolve →</b>
           </button>
         </div>
@@ -462,6 +622,7 @@ export default function Home() {
         {(Object.keys(tabLabels) as CommandTab[]).map((tab, index) => (
           <button
             key={tab}
+            ref={tab === "command" ? commandTabRef : undefined}
             id={`tab-${tab}`}
             type="button"
             aria-pressed={activeTab === tab}
@@ -552,6 +713,7 @@ export default function Home() {
               />
               <section className="policy-block">
                 <div className="policy-block-heading"><div><h3>Income tax code</h3><p>Maintain a progressive schedule while matching the country’s capacity to raise revenue.</p></div><span>Rates</span></div>
+                <p className="policy-guidance"><b>{POLICY_HINTS.incomeTaxes.label}.</b> {POLICY_HINTS.incomeTaxes.text}</p>
                 <div className="tax-grid">{policy.incomeTaxes.map((rate, index) => (
                   <RangeControl
                     key={taxLabels[index]}
@@ -567,15 +729,15 @@ export default function Home() {
                   />
                 ))}</div>
                 <div className="double-control">
-                  <RangeControl label="VAT / consumption tax" value={policy.vatRate} min={0} max={25} onChange={(value) => updatePolicy((current) => ({ ...current, vatRate: value }))} />
-                  <RangeControl label="Corporate income tax" value={policy.corporateRate} min={0} max={40} onChange={(value) => updatePolicy((current) => ({ ...current, corporateRate: value }))} />
+                  <RangeControl label="VAT / consumption tax" value={policy.vatRate} min={0} max={25} hint={POLICY_HINTS.vatRate.text} onChange={(value) => updatePolicy((current) => ({ ...current, vatRate: value }))} />
+                  <RangeControl label="Corporate income tax" value={policy.corporateRate} min={0} max={40} hint={POLICY_HINTS.corporateRate.text} onChange={(value) => updatePolicy((current) => ({ ...current, corporateRate: value }))} />
                 </div>
               </section>
               <section className="policy-block monetary-block">
                 <div className="policy-block-heading"><div><h3>Central bank directive</h3><p>Monetary choices work with a lag and must keep liquidity near real economic needs.</p></div><span>Policy signal</span></div>
                 <div className="double-control">
-                  <RangeControl label="Central-bank rate" value={policy.policyRate} min={0} max={25} onChange={(value) => updatePolicy((current) => ({ ...current, policyRate: value }))} />
-                  <RangeControl label="Broad-money growth target" value={policy.moneyGrowth} min={-5} max={30} onChange={(value) => updatePolicy((current) => ({ ...current, moneyGrowth: value }))} />
+                  <RangeControl label="Central-bank rate" value={policy.policyRate} min={0} max={25} hint={POLICY_HINTS.policyRate.text} onChange={(value) => updatePolicy((current) => ({ ...current, policyRate: value }))} />
+                  <RangeControl label="Broad-money growth target" value={policy.moneyGrowth} min={-5} max={30} hint={POLICY_HINTS.moneyGrowth.text} onChange={(value) => updatePolicy((current) => ({ ...current, moneyGrowth: value }))} />
                 </div>
                 <div className="liquidity-summary">
                   <SignalBar label="Money supply" value={state.moneySupply} detail={state.moneySupply.toFixed(1)} />
@@ -596,7 +758,7 @@ export default function Home() {
               />
               <section className="policy-block society-spend">
                 <div className="policy-block-heading"><div><h3>Primary public expenditure</h3><p>Set the national fiscal commitment, then allocate every available unit.</p></div><span>{percent(policy.spendingGDP)} of GDP</span></div>
-                <RangeControl label="Primary public expenditure" value={policy.spendingGDP} min={10} max={35} onChange={(value) => updatePolicy((current) => ({ ...current, spendingGDP: value }))} />
+                <RangeControl label="Primary public expenditure" value={policy.spendingGDP} min={10} max={35} hint={POLICY_HINTS.spendingGDP.text} onChange={(value) => updatePolicy((current) => ({ ...current, spendingGDP: value }))} />
               </section>
               <section className="policy-block">
                 <div className="policy-block-heading"><div><h3>Ministry allocations</h3><p>All four shares must add to exactly 100% before the cabinet can submit a decision.</p></div><span>Distribution</span></div>
@@ -608,6 +770,7 @@ export default function Home() {
                       value={policy.allocations[key]}
                       min={0}
                       max={100}
+                      hint={POLICY_HINTS[key].text}
                       onChange={(value) => updatePolicy((current) => ({ ...current, allocations: { ...current.allocations, [key]: value } }))}
                     />
                   ))}
@@ -615,7 +778,7 @@ export default function Home() {
                 <div className={`allocation-total ${policyReady ? "valid" : "invalid"}`}>
                   <span>Allocation total</span>
                   <b>{Object.values(policy.allocations).reduce((sum, value) => sum + value, 0)}%</b>
-                  <small>Required: 100%</small>
+                  <small>Required: 100% · {POLICY_HINTS.allocationTotal.text}</small>
                 </div>
               </section>
               <div className="society-insight-grid">
@@ -694,16 +857,17 @@ export default function Home() {
             {policyReady ? <p>All policy limits and budget allocations are valid. The mandate is ready to resolve.</p> : (
               <ul>{validationErrors.map((error) => <li key={error}>{error}</li>)}</ul>
             )}
+            <small>{POLICY_HINTS.validation.text}</small>
           </div>
-          <button type="button" className="rail-end-turn" disabled={!policyReady} onClick={resolveQuarter}>
+          <button type="button" className="rail-end-turn" disabled={!policyReady} onClick={(event) => resolveQuarter(event.currentTarget)} aria-describedby="policy-status">
             <span>End quarter</span><b>Resolve policy →</b>
           </button>
         </aside>
       </div>
 
-      {briefingOpen && run.lastResult ? (
+      {activeOverlay === "briefing" && run.lastResult ? (
         <div className="briefing-backdrop">
-          <section className="briefing-dialog" role="dialog" aria-modal="true" aria-labelledby="briefing-title">
+          <section ref={briefingDialogRef} className="briefing-dialog" role="dialog" aria-modal="true" aria-labelledby="briefing-title" tabIndex={-1}>
             <header>
               <div><p className="eyebrow">Quarter {state.quarter} resolved</p><span className="briefing-status"><i /> National briefing</span></div>
               <button ref={briefingCloseRef} type="button" className="dialog-close" aria-label="Close briefing" onClick={closeBriefing}>×</button>
@@ -732,6 +896,7 @@ export default function Home() {
           </section>
         </div>
       ) : null}
+      {guideOverlay}
     </main>
   );
 }

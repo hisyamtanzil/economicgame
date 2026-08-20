@@ -5,6 +5,7 @@ import {
   createInitialState,
   getScenario,
   policyForScenario,
+  SCENARIOS,
   validatePolicy,
 } from "./game.ts";
 
@@ -16,6 +17,13 @@ test("the simulation is deterministic for a scenario seed", () => {
   const first = advanceQuarter(start, policy, aster.seed);
   const second = advanceQuarter(start, policy, aster.seed);
   assert.deepEqual(first, second);
+});
+
+test("each campaign resolves its opening quarter with its existing default policy", () => {
+  for (const scenario of SCENARIOS) {
+    const result = advanceQuarter(createInitialState(scenario), policyForScenario(scenario), scenario.seed);
+    assert.equal(result.state.quarter, 1, `${scenario.name} should resolve its first quarter`);
+  }
 });
 
 test("policy validation rejects regressive income bands and unallocated budgets", () => {

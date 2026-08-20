@@ -25,6 +25,12 @@ calm, legible, modern, and consequential rather than militaristic or cartoonish.
 - Show one fictional leader per scenario and three shared advisors (Treasury,
   Social Development, and Central Bank). Advisors explain the current state and
   trade-offs only; they do not change calculations or grant gameplay effects.
+- Provide a five-step, presentation-only guide for goals, Treasury, Society,
+  Intelligence, and winning. It may direct the player to a command-centre view,
+  but must never alter policy values or resolve a quarter.
+- Auto-open the guide only for a newly started mandate when it has not yet been
+  completed in that browser. Keep it manually available and never show it
+  automatically when restoring a saved campaign.
 
 ## Simulation and compatibility constraints
 
@@ -32,6 +38,8 @@ calm, legible, modern, and consequential rather than militaristic or cartoonish.
   behaviour, end-game scoring, and policy validation in `app/game.ts`.
 - Preserve the local-storage key `commonwealth-policy-lab-run-v1` and its run
   shape so an in-progress saved campaign remains loadable after UI work.
+- Store tutorial completion only as a separate browser preference under
+  `nations-in-balance-tutorial-v1`; it must not alter the saved-run format.
 - Do not introduce a backend, database schema, API routes, authentication
   requirement, multiplayer, analytics, or new dependencies for this redesign.
 - Do not add maps, units, cities, territory, diplomacy, technology trees,
@@ -66,6 +74,9 @@ instead of duplicating it across components.
   icons, or values.
 - Support keyboard tab navigation, Enter/Space activation, and Escape for the
   briefing overlay. Preserve a sensible focus return target after close.
+- Treat the tutorial as an accessible modal: provide explicit close and
+  navigation controls, visible step progress, keyboard focus containment,
+  Escape dismissal, and focus return to its original trigger.
 - Respect `prefers-reduced-motion`; animations must be decorative and optional.
 - Retain adequate contrast, responsive reflow, and usable touch targets.
 - Announce meaningful post-turn updates through an appropriate live region or
@@ -75,11 +86,13 @@ instead of duplicating it across components.
 
 - `npm run build` succeeds.
 - Run the existing simulation suite and the dependency-free campaign-content
-  suite: `npx tsx --test app/game.test.ts app/campaign-content.test.ts`.
+  and tutorial-content suites: `npx tsx --test app/game.test.ts
+  app/campaign-content.test.ts app/tutorial-content.test.ts`.
 - Verify Aster, Veyra, and Nambara resolve through the existing `game.ts`
   mechanics unchanged, including seeded events and crisis/endgame behaviour.
 - Verify an existing `commonwealth-policy-lab-run-v1` save still restores, and
   a newly resolved quarter still persists under that key.
 - Manually verify desktop and mobile layouts, keyboard tab navigation, visible
   focus, reduced-motion behaviour, tab panels, and the post-turn briefing
-  overlay.
+  overlay. Also verify guide launch and dismissal, no guide on save restoration,
+  policy hints, score benchmarks, and tutorial focus behavior.
