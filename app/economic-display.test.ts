@@ -6,14 +6,13 @@ import {
   deriveHouseholdResponses,
   estimatePriceIndex,
   formatNominalBillions,
-  formatPeople,
 } from "./economic-display.ts";
 import { advanceQuarter, createInitialState, getScenario, policyForScenario } from "./game.ts";
 
 const aster = getScenario("aster");
 const profile = getCampaignProfile("aster");
 
-test("display estimates turn existing model indexes into labelled fictional totals without mutation", () => {
+test("display estimates turn existing model indexes into labelled fictional totals and a poverty-pressure indicator without mutation", () => {
   const initial = createInitialState(aster);
   const snapshot = JSON.stringify(initial);
   const display = deriveEconomicDisplay(initial, initial, [initial], profile);
@@ -22,10 +21,9 @@ test("display estimates turn existing model indexes into labelled fictional tota
   assert.equal(display.nominalGDPBillions, profile.displayScale.baseNominalGDPBillions);
   assert.ok(Math.abs(display.annualizedRevenueBillions - 124.3172) < 1e-9);
   assert.ok(Math.abs(display.publicDebtBillions - 330.696) < 1e-9);
-  assert.equal(display.povertyEquivalentPeople, 6_996_000);
+  assert.equal(display.povertyPressure, initial.poverty);
   assert.equal(JSON.stringify(initial), snapshot);
   assert.equal(formatNominalBillions(display.nominalGDPBillions, profile), "AC 612.4bn");
-  assert.equal(formatPeople(display.povertyEquivalentPeople), "7.0m");
 });
 
 test("price-index and fiscal display estimates derive from history rather than saved-run fields", () => {
@@ -39,6 +37,7 @@ test("price-index and fiscal display estimates derive from history rather than s
   assert.ok(display.nominalGDPBillions > profile.displayScale.baseNominalGDPBillions);
   assert.ok(display.annualizedRevenueBillions > 0);
   assert.ok(display.publicDebtBillions > 0);
+  assert.equal(display.povertyPressure, result.state.poverty);
 });
 
 test("household protest signals are deterministic presentation-only policy indicators", () => {

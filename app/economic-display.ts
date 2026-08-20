@@ -1,13 +1,17 @@
 import type { CampaignProfile } from "./campaign-content";
-import type { EconomicState, PolicyPackage } from "./game";
+import { deriveDistributionMetrics, type EconomicState, type PolicyPackage } from "./game";
 
 export type EconomicDisplay = {
   priceIndex: number;
   nominalGDPBillions: number;
   annualizedRevenueBillions: number;
   publicDebtBillions: number;
-  povertyEquivalentPeople: number;
-  fixedPopulationPeople: number;
+  /**
+   * A modelled lower-income shortfall derived by the simulation from quintile
+   * incomes. It is a pressure/gap indicator, not a population estimate or an
+   * official poverty rate.
+   */
+  povertyPressure: number;
 };
 
 export type HouseholdResponse = {
@@ -45,15 +49,14 @@ export function deriveEconomicDisplay(
   const priceIndex = estimatePriceIndex(history, state);
   const realOutputChange = state.realGDP / Math.max(0.01, baseline.realGDP);
   const nominalGDPBillions = profile.displayScale.baseNominalGDPBillions * realOutputChange * priceIndex;
-  const fixedPopulationPeople = profile.displayScale.fixedPopulationMillions * 1_000_000;
+  const distribution = deriveDistributionMetrics(state.quintiles);
 
   return {
     priceIndex,
     nominalGDPBillions,
     annualizedRevenueBillions: nominalGDPBillions * state.revenueGDP / 100,
     publicDebtBillions: nominalGDPBillions * state.debtGDP / 100,
-    povertyEquivalentPeople: fixedPopulationPeople * state.poverty / 100,
-    fixedPopulationPeople,
+    povertyPressure: distribution.poverty,
   };
 }
 
@@ -61,14 +64,6 @@ export function formatNominalBillions(value: number, profile: CampaignProfile) {
   const digits = Math.abs(value) >= 1_000 ? 0 : 1;
   const formatted = new Intl.NumberFormat("en-US", { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value);
   return `${profile.displayScale.currencyCode} ${formatted}bn`;
-}
-
-export function formatPeople(value: number) {
-  if (Math.abs(value) >= 1_000_000) {
-    return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(value / 1_000_000)}m`;
-  }
-  if (Math.abs(value) >= 1_000) return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value / 1_000)}k`;
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
 function responseStatus(pressure: number): Pick<HouseholdResponse, "signal" | "tone"> {
@@ -105,6 +100,7 @@ function higherIncomeExplanation(policy: PolicyPackage) {
  * unrest, events, score, saved data, or any calculation in game.ts.
  */
 export function deriveHouseholdResponses(state: EconomicState, policy: PolicyPackage): HouseholdResponse[] {
+  const distribution = deriveDistributionMetrics(state.quintiles);
   const transfersSpend = policy.spendingGDP * policy.allocations.transfers / 100;
   const healthSpend = policy.spendingGDP * policy.allocations.health / 100;
   const educationSpend = policy.spendingGDP * policy.allocations.education / 100;
@@ -115,7 +111,7 @@ export function deriveHouseholdResponses(state: EconomicState, policy: PolicyPac
     8
       + Math.max(0, policy.vatRate - 8) * 2
       + Math.max(0, policy.incomeTaxes[0] - 8) * 1.5
-      + Math.max(0, state.poverty - 20) * 1.2
+      + Math.max(0, distribution.poverty - 20) * 1.2
       + Math.max(0, state.inflation - 5) * 2
       + Math.max(0, state.unemployment - 7) * 2.2
       + Math.max(0, 5 - transfersSpend) * 8

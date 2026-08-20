@@ -118,7 +118,7 @@ export const SCENARIOS: Scenario[] = [
       realGDP: 100, potentialGDP: 101.2, potentialGrowth: 3.1, annualGrowth: 3.1,
       inflation: 4.8, unemployment: 7.1, debtGDP: 54, deficitGDP: 2.4, revenueGDP: 20.3,
       primarySpendingGDP: 21.5, interestGDP: 1.2, policyRate: 6, moneySupply: 68, moneyDemand: 67,
-      exchangePressure: 3, capitalFlow: 1.1, confidence: 66, unrest: 31, gini: 0.47, poverty: 22,
+      exchangePressure: 3, capitalFlow: 1.1, confidence: 66, unrest: 31, gini: 0.422, poverty: 23.2,
       hdi: 0.648, healthIndex: 0.66, educationIndex: 0.62, incomeIndex: 0.664,
       healthCapacity: 0.54, educationCapacity: 0.52, infrastructureStock: 0.49,
       quintiles: quintiles([43, 62, 88, 135, 380]), creditRating: "Sound",
@@ -136,7 +136,7 @@ export const SCENARIOS: Scenario[] = [
       realGDP: 100, potentialGDP: 100.8, potentialGrowth: 3.7, annualGrowth: 3.9,
       inflation: 5.9, unemployment: 8.8, debtGDP: 43, deficitGDP: 1.8, revenueGDP: 17.7,
       primarySpendingGDP: 18.5, interestGDP: 1, policyRate: 7, moneySupply: 69, moneyDemand: 68,
-      exchangePressure: 5, capitalFlow: 1.8, confidence: 62, unrest: 48, gini: 0.54, poverty: 31,
+      exchangePressure: 5, capitalFlow: 1.8, confidence: 62, unrest: 48, gini: 0.526, poverty: 32.6,
       hdi: 0.602, healthIndex: 0.58, educationIndex: 0.55, incomeIndex: 0.676,
       healthCapacity: 0.41, educationCapacity: 0.39, infrastructureStock: 0.52,
       quintiles: quintiles([28, 44, 72, 123, 480]), creditRating: "Sound",
@@ -154,7 +154,7 @@ export const SCENARIOS: Scenario[] = [
       realGDP: 100, potentialGDP: 104, potentialGrowth: 3.0, annualGrowth: 1.4,
       inflation: 14.2, unemployment: 11.3, debtGDP: 79, deficitGDP: 5.6, revenueGDP: 19.5,
       primarySpendingGDP: 22.4, interestGDP: 2.7, policyRate: 13, moneySupply: 74, moneyDemand: 69,
-      exchangePressure: 17, capitalFlow: -3.2, confidence: 42, unrest: 57, gini: 0.49, poverty: 29,
+      exchangePressure: 17, capitalFlow: -3.2, confidence: 42, unrest: 57, gini: 0.457, poverty: 27.8,
       hdi: 0.591, healthIndex: 0.57, educationIndex: 0.53, incomeIndex: 0.673,
       healthCapacity: 0.44, educationCapacity: 0.42, infrastructureStock: 0.46,
       quintiles: quintiles([35, 54, 80, 123, 390]), creditRating: "Watch",
@@ -177,15 +177,34 @@ function quintiles(incomes: number[]): HouseholdQuintile[] {
   return incomes.map((income, index) => ({ label: labels[index], income, marginalPropensityToConsume: mpcs[index] }));
 }
 
+/**
+ * The household series represents disposable income for five equally sized
+ * groups. Distribution indicators are derived from that source of truth so a
+ * scenario cannot receive an inclusion gain before a policy is chosen.
+ */
+export function deriveDistributionMetrics(quintileData: readonly HouseholdQuintile[]) {
+  const values = quintileData.map((entry) => entry.income).sort((a, b) => a - b);
+  const total = values.reduce((sum, value) => sum + value, 0);
+  let difference = 0;
+  values.forEach((value) => values.forEach((other) => { difference += Math.abs(value - other); }));
+  const gini = total ? clamp(difference / (2 * values.length * total), 0, 0.75) : 0;
+  // This is an income-shortfall (poverty-gap) proxy, not a survey headcount.
+  const poverty = quintileData.reduce((sum, entry) => sum + clamp((105 - entry.income) / 105, 0, 1) * 20, 0);
+  return { gini: round(gini, 3), poverty: round(poverty, 1) };
+}
+
 export function getScenario(id: string) {
   return SCENARIOS.find((scenario) => scenario.id === id) ?? SCENARIOS[0];
 }
 
 export function createInitialState(scenario: Scenario): EconomicState {
+  const scenarioQuintiles = scenario.starting.quintiles.map((quintile) => ({ ...quintile }));
+  const distribution = deriveDistributionMetrics(scenarioQuintiles);
   return {
     ...scenario.starting,
     quarter: 0,
-    quintiles: scenario.starting.quintiles.map((quintile) => ({ ...quintile })),
+    quintiles: scenarioQuintiles,
+    ...distribution,
     lastPolicy: clonePolicy(scenario.defaultPolicy),
     hyperinflationStreak: 0,
     unrestStreak: 0,
@@ -229,19 +248,6 @@ export function getRiskSignal(seed: number, completedQuarter: number) {
   return next?.forecastable ? `Risk watch: ${next.title.toLowerCase()} may affect the next quarter.` : "No verified external risk signal for the next quarter.";
 }
 
-function giniFromIncome(quintileData: HouseholdQuintile[]) {
-  const values = quintileData.map((entry) => entry.income).sort((a, b) => a - b);
-  const total = values.reduce((sum, value) => sum + value, 0);
-  if (!total) return 0;
-  let difference = 0;
-  values.forEach((value) => values.forEach((other) => { difference += Math.abs(value - other); }));
-  return clamp(difference / (2 * values.length * total), 0, 0.75);
-}
-
-function povertyFromIncome(quintileData: HouseholdQuintile[]) {
-  return round(quintileData.reduce((total, entry) => total + clamp((105 - entry.income) / 105, 0, 1) * 20, 0), 1);
-}
-
 function normalizeAllocations(allocations: PolicyPackage["allocations"]) {
   const sum = Object.values(allocations).reduce((total, value) => total + value, 0) || 1;
   return {
@@ -278,16 +284,31 @@ function averageIncomeTax(policy: PolicyPackage) {
   return policy.incomeTaxes.reduce((total, rate, index) => total + rate * [0.1, 0.16, 0.22, 0.24, 0.28][index], 0);
 }
 
+const EFFECTIVE_INCOME_TAX_SHARES = [0.18, 0.34, 0.53, 0.72, 0.9];
+const TRANSFER_SHARES = [0.46, 0.28, 0.16, 0.07, 0.03];
+const HOUSEHOLD_GROWTH_SHARES = [0.72, 0.82, 0.92, 1.02, 1.12];
+const QUARTERLY_REFINANCING_SHARE = 0.15;
+
+function householdTaxBurden(policy: PolicyPackage, quintile: HouseholdQuintile, index: number) {
+  const incomeTax = policy.incomeTaxes[index] * EFFECTIVE_INCOME_TAX_SHARES[index] / 100;
+  const vat = policy.vatRate * quintile.marginalPropensityToConsume * 0.0018;
+  return incomeTax + vat;
+}
+
+function householdTransfer(spendingGDP: number, allocations: PolicyPackage["allocations"], index: number) {
+  return spendingGDP * allocations.transfers / 100 * TRANSFER_SHARES[index];
+}
+
 function makeAdvisor(previous: EconomicState, next: EconomicState, policy: PolicyPackage, event: EventDefinition | null, constrained: boolean) {
   const messages: string[] = [];
   if (event) messages.push(`${event.title}: ${event.description}`);
-  if (policy.allocations.transfers >= 28 && next.gini < previous.gini) messages.push("Transfers protected lower-income households; inequality eased, though the budget trade-off remains visible in borrowing.");
+  if (policy.allocations.transfers > previous.lastPolicy.allocations.transfers && next.gini < previous.gini) messages.push("A larger transfer share protected lower-income households; inequality eased, while less remains for other public investments.");
   else if (policy.vatRate >= 17) messages.push("Higher consumption tax strengthened revenue but reduced real household spending, with the sharpest effect on lower quintiles.");
-  else if (policy.corporateRate <= 18) messages.push("The lighter business-tax burden supported investment; watch whether the lost revenue weakens public service gains.");
+  else if (policy.corporateRate <= 18) messages.push("The lighter business-tax burden supported capital flows; watch whether lost revenue narrows fiscal room for public services.");
   else messages.push("The current fiscal mix is balancing household demand, investor incentives, and public-service capacity.");
-  if (policy.policyRate > previous.policyRate || policy.moneyGrowth < previous.lastPolicy.moneyGrowth) messages.push("Monetary policy is leaning against inflation. The stabilising effect arrives with a short growth and employment cost.");
+  if (policy.policyRate > previous.policyRate || policy.moneyGrowth < previous.lastPolicy.moneyGrowth) messages.push("Monetary policy is leaning against inflation. Financial conditions adjust now; most growth and employment effects arrive next quarter.");
   else if (next.inflation > previous.inflation + 0.5) messages.push("Money supply and demand are drifting apart; inflation expectations and exchange pressure are now the main risks.");
-  else messages.push("Money demand is responding to income, confidence, and interest rates; keep liquidity close to real economic needs.");
+  else messages.push("Liquidity demand is responding to nominal activity and interest rates; keep money growth close to the economy's financing needs.");
   if (constrained) messages.push("Emergency conditions constrained the scale of this quarter’s policy changes.");
   return messages.slice(0, 4);
 }
@@ -298,7 +319,14 @@ export function advanceQuarter(state: EconomicState, requestedPolicy: PolicyPack
   const adjustment = constrainedPolicy(state, requestedPolicy);
   const policy = adjustment.policy;
   const event = eventForQuarter(seed, state.quarter + 1);
-  const shock = event?.effects ?? { growth: 0, inflation: 0, confidence: 0, unrest: 0, exchange: 0, investment: 0 };
+  const previousPolicy = state.lastPolicy;
+  const rawShock = event?.effects ?? { growth: 0, inflation: 0, confidence: 0, unrest: 0, exchange: 0, investment: 0 };
+  const epidemicProtection = event?.id === "epidemic" ? clamp((state.healthCapacity - 0.25) * 0.4, 0, 0.24) : 0;
+  const shock = {
+    ...rawShock,
+    growth: rawShock.growth < 0 ? rawShock.growth * (1 - epidemicProtection) : rawShock.growth,
+    unrest: rawShock.unrest > 0 ? rawShock.unrest * (1 - epidemicProtection) : rawShock.unrest,
+  };
   const averageTax = averageIncomeTax(policy);
   const healthSpend = policy.spendingGDP * policy.allocations.health / 100;
   const educationSpend = policy.spendingGDP * policy.allocations.education / 100;
@@ -310,44 +338,57 @@ export function advanceQuarter(state: EconomicState, requestedPolicy: PolicyPack
   const vatRevenue = consumptionShare * policy.vatRate * 0.72;
   const corporateRevenue = policy.corporateRate * 0.18 * (0.92 + state.confidence / 1200);
   const revenueGDP = incomeRevenue + vatRevenue + corporateRevenue;
-  const riskSpread = 1.25 + Math.max(0, state.debtGDP - 55) * 0.055 + Math.max(0, 58 - state.confidence) * 0.035 + (state.creditRating === "Downgraded" ? 1.1 : state.creditRating === "Distressed" ? 2.4 : 0);
-  const interestGDP = state.debtGDP * ((policy.policyRate + riskSpread) / 100) / 4;
+  const globalRateSurcharge = event?.id === "global-rates" ? 0.65 : 0;
+  const riskSpread = 0.9 + Math.max(0, state.debtGDP - 55) * 0.012 + Math.max(0, 55 - state.confidence) * 0.014 + (state.creditRating === "Downgraded" ? 0.6 : state.creditRating === "Distressed" ? 1.2 : 0) + globalRateSurcharge;
+  const inheritedDebtRate = clamp(state.interestGDP / Math.max(1, state.debtGDP) * 100, 1.25, 18);
+  // The policy rate is not the whole sovereign yield: existing debt has a
+  // maturity structure and only a limited policy-rate pass-through.
+  const marketDebtRate = 1.5 + policy.policyRate * 0.15 + riskSpread;
+  const effectiveDebtRate = inheritedDebtRate + (marketDebtRate - inheritedDebtRate) * QUARTERLY_REFINANCING_SHARE;
+  const interestGDP = state.debtGDP * effectiveDebtRate / 100;
   const deficitGDP = policy.spendingGDP + interestGDP - revenueGDP;
-  const fiscalImpulse = (policy.spendingGDP - 21) * 0.16 + (transfersSpend - 4.7) * 0.12;
+  const fiscalImpulse = (policy.spendingGDP - 21) * 0.12 + (transfersSpend - 4.7) * 0.06;
   const taxDrag = (averageTax - 26) * 0.045 + (policy.vatRate - 12) * 0.07 + (policy.corporateRate - 24) * 0.055;
-  const monetaryDrag = (state.policyRate - 6) * 0.18 - (state.lastPolicy.moneyGrowth - 8) * 0.035;
-  const publicCapacity = state.infrastructureStock * 0.8 + state.healthCapacity * 0.18 + state.educationCapacity * 0.22;
-  const annualGrowth = clamp(state.potentialGrowth + publicCapacity + fiscalImpulse - taxDrag - monetaryDrag + shock.growth + shock.investment * 0.45 - Math.max(0, state.exchangePressure - 12) * 0.055, -8, 13);
+  // Policy reaches financial conditions during the resolved quarter. Aggregate
+  // demand responds to the previously announced stance, creating a clear lag.
+  const monetaryDrag = (previousPolicy.policyRate - 6) * 0.1 - (previousPolicy.moneyGrowth - 8) * 0.025;
+  const potentialAnnualGrowth = state.potentialGrowth + state.infrastructureStock * 0.35 + state.healthCapacity * 0.1 + state.educationCapacity * 0.12;
+  const potentialGDP = round(state.potentialGDP * (1 + potentialAnnualGrowth / 400), 2);
+  const openingOutputGap = (state.realGDP / state.potentialGDP - 1) * 100;
+  const gapClosing = clamp(-openingOutputGap * 0.24, -1.5, 1.5);
+  const annualGrowth = clamp(potentialAnnualGrowth + gapClosing + fiscalImpulse - taxDrag - monetaryDrag + shock.growth + shock.investment * 0.35 - Math.max(0, state.exchangePressure - 12) * 0.045, -8, 13);
   const realGDP = round(state.realGDP * (1 + annualGrowth / 400), 2);
-  const potentialGDP = round(state.potentialGDP * (1 + (state.potentialGrowth + state.infrastructureStock * 0.35) / 400), 2);
   const outputGap = (realGDP / potentialGDP - 1) * 100;
   const moneySupply = round(state.moneySupply * (1 + policy.moneyGrowth / 400), 2);
-  const nominalActivity = realGDP * (1 + Math.max(-0.5, state.inflation) / 100);
-  const moneyDemand = round(nominalActivity * 0.67 * (1 - (state.policyRate - 6) * 0.008 + (100 - state.confidence) * 0.0018), 2);
+  const nominalQuarterlyGrowth = (1 + annualGrowth / 400) * (1 + state.inflation / 400) - 1;
+  const rateChange = policy.policyRate - previousPolicy.policyRate;
+  const moneyDemand = round(Math.max(1, state.moneyDemand * (1 + nominalQuarterlyGrowth - rateChange * 0.0015)), 2);
   const moneyGap = ((moneySupply - moneyDemand) / Math.max(1, moneyDemand)) * 100;
-  const exchangePressure = clamp(state.exchangePressure * 0.58 + Math.max(0, policy.policyRate - state.inflation) * -0.12 + Math.max(0, state.inflation - policy.policyRate) * 0.22 + Math.max(0, deficitGDP - 3) * 0.25 + shock.exchange - state.capitalFlow * 0.25, -12, 85);
-  const inflation = clamp(state.inflation * 0.72 + 1.15 + moneyGap * 0.16 + outputGap * 0.12 + exchangePressure * 0.07 - (state.policyRate - 5) * 0.18 + shock.inflation, -1, 85);
-  const capitalFlow = clamp(state.capitalFlow * 0.5 + state.confidence * 0.06 + (policy.policyRate - inflation) * 0.28 - Math.max(0, state.debtGDP - 65) * 0.1 + shock.investment * 1.1, -18, 16);
-  const confidence = clamp(state.confidence + annualGrowth * 0.65 - Math.max(0, inflation - 6) * 0.33 - Math.max(0, deficitGDP - 3) * 0.7 - Math.max(0, state.debtGDP - 70) * 0.1 - state.unrest * 0.045 + shock.confidence, 12, 94);
+  const exchangePressure = clamp(state.exchangePressure * 0.62 - Math.max(0, policy.policyRate - state.inflation) * 0.08 + Math.max(0, state.inflation - policy.policyRate) * 0.16 + Math.max(0, deficitGDP - 3) * 0.12 + shock.exchange - state.capitalFlow * 0.2, -12, 85);
+  const vatPassThrough = (policy.vatRate - previousPolicy.vatRate) * 0.12;
+  const inflation = clamp(state.inflation * 0.68 + 1.28 + moneyGap * 0.12 + outputGap * 0.1 + exchangePressure * 0.05 - (policy.policyRate - 5) * 0.08 + vatPassThrough + shock.inflation, -1, 85);
+  const corporateFlowEffect = -(policy.corporateRate - 24) * 0.06;
+  const capitalFlow = clamp(state.capitalFlow * 0.55 + (state.confidence - 60) * 0.035 + (policy.policyRate - inflation) * 0.18 - Math.max(0, state.debtGDP - 65) * 0.06 + corporateFlowEffect + shock.investment * 0.8, -18, 16);
+  const confidence = clamp(state.confidence + (60 - state.confidence) * 0.12 + annualGrowth * 0.35 - Math.max(0, inflation - 6) * 0.18 - Math.max(0, deficitGDP - 3) * 0.2 - Math.max(0, state.debtGDP - 70) * 0.05 - state.unrest * 0.02 + shock.confidence, 12, 94);
   const nextQuintiles = state.quintiles.map((quintile, index) => {
-    const effectiveIncomeRate = policy.incomeTaxes[index] * [0.18, 0.34, 0.53, 0.72, 0.9][index] / 100;
-    const vatBurden = policy.vatRate * quintile.marginalPropensityToConsume * 0.0018;
-    const transferShares = [0.46, 0.28, 0.16, 0.07, 0.03];
-    const transfer = transfersSpend * 4.4 * transferShares[index];
-    const serviceBenefit = healthSpend * [0.22, 0.18, 0.13, 0.08, 0.04][index] + educationSpend * [0.1, 0.13, 0.15, 0.11, 0.05][index];
-    return { ...quintile, income: round(Math.max(14, quintile.income * (1 + annualGrowth / 430) * (1 - effectiveIncomeRate - vatBurden) + transfer + serviceBenefit), 1) };
+    const taxBurdenChange = householdTaxBurden(policy, quintile, index) - householdTaxBurden(previousPolicy, quintile, index);
+    const transferChange = householdTransfer(policy.spendingGDP, policy.allocations, index) - householdTransfer(previousPolicy.spendingGDP, previousPolicy.allocations, index);
+    // Quintile incomes are disposable-income levels. Policy changes shift the
+    // level once; keeping a policy in place must not tax it again every quarter.
+    const householdGrowth = annualGrowth * HOUSEHOLD_GROWTH_SHARES[index] / 400;
+    return { ...quintile, income: round(Math.max(14, quintile.income * (1 + householdGrowth - taxBurdenChange) + transferChange), 1) };
   });
-  const gini = giniFromIncome(nextQuintiles);
-  const poverty = povertyFromIncome(nextQuintiles);
-  const unemployment = clamp(state.unemployment - (annualGrowth - 2) * 0.16 + shock.growth * -0.14 + Math.max(0, state.exchangePressure - 20) * 0.03, 2.2, 28);
-  const unrest = clamp(state.unrest + (gini - 0.43) * 16 + Math.max(0, inflation - 7) * 0.26 + Math.max(0, unemployment - 9) * 0.38 - transfersSpend * 0.24 - healthSpend * 0.12 - confidence * 0.035 + shock.unrest, 3, 100);
-  const debtGDP = clamp(state.debtGDP + deficitGDP - annualGrowth * 0.18 + Math.max(0, inflation - 12) * 0.05, 4, 220);
-  const healthCapacity = clamp(state.healthCapacity * 0.994 + healthSpend * 0.011, 0.25, 0.95);
-  const educationCapacity = clamp(state.educationCapacity * 0.995 + educationSpend * 0.009, 0.25, 0.95);
-  const infrastructureStock = clamp(state.infrastructureStock * 0.994 + infrastructureSpend * 0.008, 0.25, 0.95);
-  const healthIndex = clamp(state.healthIndex + healthSpend * 0.00055 - Math.max(0, inflation - 12) * 0.00028, 0.4, 0.94);
-  const educationIndex = clamp(state.educationIndex + educationSpend * 0.00042 + educationCapacity * 0.00012, 0.4, 0.94);
-  const incomeIndex = clamp(state.incomeIndex + annualGrowth * 0.00045 - Math.max(0, poverty - 25) * 0.00009, 0.4, 0.94);
+  const distribution = deriveDistributionMetrics(nextQuintiles);
+  const unemployment = clamp(state.unemployment + (6 - state.unemployment) * 0.06 - (annualGrowth - potentialAnnualGrowth) * 0.16 - shock.growth * 0.08 + Math.max(0, state.exchangePressure - 20) * 0.02, 2.5, 22);
+  const unrest = clamp(state.unrest + (35 - state.unrest) * 0.03 + (distribution.gini - 0.43) * 8 + Math.max(0, distribution.poverty - 25) * 0.08 + Math.max(0, inflation - 7) * 0.18 + Math.max(0, unemployment - 9) * 0.25 - transfersSpend * 0.08 - healthSpend * 0.04 - Math.max(0, confidence - 50) * 0.03 + shock.unrest, 3, 100);
+  const nominalGDPFactor = (1 + annualGrowth / 400) * (1 + inflation / 400);
+  const debtGDP = clamp((state.debtGDP + deficitGDP / 4) / nominalGDPFactor, 4, 220);
+  const healthCapacity = clamp(state.healthCapacity * 0.999 + healthSpend * 0.001, 0.25, 0.95);
+  const educationCapacity = clamp(state.educationCapacity * 0.999 + educationSpend * 0.0009, 0.25, 0.95);
+  const infrastructureStock = clamp(state.infrastructureStock * 0.998 + infrastructureSpend * 0.001 + (event?.id === "investment" ? 0.012 : 0), 0.25, 0.95);
+  const healthIndex = clamp(state.healthIndex + healthSpend * 0.00008 - Math.max(0, inflation - 12) * 0.00006, 0.4, 0.94);
+  const educationIndex = clamp(state.educationIndex + educationSpend * 0.000065 + educationCapacity * 0.000025, 0.4, 0.94);
+  const incomeIndex = clamp(state.incomeIndex + annualGrowth * 0.00008 - Math.max(0, distribution.poverty - 25) * 0.00004, 0.4, 0.94);
   const hdi = clamp((healthIndex + educationIndex + incomeIndex) / 3, 0.4, 0.94);
   const creditRating: EconomicState["creditRating"] = debtGDP > 115 || confidence < 30 ? "Distressed" : debtGDP > 82 || confidence < 43 ? "Downgraded" : debtGDP > 65 || confidence < 55 ? "Watch" : "Sound";
   const hyperinflationStreak = inflation > 50 ? state.hyperinflationStreak + 1 : 0;
@@ -356,16 +397,20 @@ export function advanceQuarter(state: EconomicState, requestedPolicy: PolicyPack
   const next: EconomicState = {
     quarter: state.quarter + 1, realGDP, potentialGDP, potentialGrowth: state.potentialGrowth, annualGrowth: round(annualGrowth), inflation: round(inflation), unemployment: round(unemployment),
     debtGDP: round(debtGDP), deficitGDP: round(deficitGDP), revenueGDP: round(revenueGDP), primarySpendingGDP: policy.spendingGDP, interestGDP: round(interestGDP), policyRate: policy.policyRate,
-    moneySupply, moneyDemand, exchangePressure: round(exchangePressure), capitalFlow: round(capitalFlow), confidence: round(confidence), unrest: round(unrest), gini: round(gini, 3), poverty, hdi: round(hdi, 3), healthIndex: round(healthIndex, 3), educationIndex: round(educationIndex, 3), incomeIndex: round(incomeIndex, 3),
+    moneySupply, moneyDemand, exchangePressure: round(exchangePressure), capitalFlow: round(capitalFlow), confidence: round(confidence), unrest: round(unrest), gini: distribution.gini, poverty: distribution.poverty, hdi: round(hdi, 3), healthIndex: round(healthIndex, 3), educationIndex: round(educationIndex, 3), incomeIndex: round(incomeIndex, 3),
     healthCapacity: round(healthCapacity, 3), educationCapacity: round(educationCapacity, 3), infrastructureStock: round(infrastructureStock, 3), quintiles: nextQuintiles, creditRating, hyperinflationStreak, unrestStreak, lastPolicy: clonePolicy(policy),
   };
   return { state: next, event, advisor: makeAdvisor(state, next, policy, event, adjustment.constrained), crisis, constrained: adjustment.constrained, effectivePolicy: policy };
 }
 
 export function buildEndgameReport(state: EconomicState, baseline: EconomicState, crisis: string | null = null): EndgameReport {
+  // Re-derive distribution metrics so legacy saves with historical display
+  // values cannot receive inclusion points from an inconsistent baseline.
+  const baselineDistribution = deriveDistributionMetrics(baseline.quintiles);
+  const finalDistribution = deriveDistributionMetrics(state.quintiles);
   const cumulativeGrowth = ((state.realGDP / baseline.realGDP) - 1) * 100;
   const prosperity = clamp(((cumulativeGrowth + 3) / 21) * 25, 0, 25);
-  const inclusion = clamp((baseline.gini - state.gini) * 300 + (baseline.poverty - state.poverty) * 1.05, 0, 25);
+  const inclusion = clamp((baselineDistribution.gini - finalDistribution.gini) * 300 + (baselineDistribution.poverty - finalDistribution.poverty) * 1.05, 0, 25);
   const development = clamp((state.hdi - baseline.hdi) * 625, 0, 25);
   const inflationScore = clamp(10 - Math.abs(state.inflation - 4) * 0.75, 0, 10);
   const jobsScore = clamp(8 - Math.max(0, state.unemployment - 6) * 0.8, 0, 8);

@@ -5,6 +5,7 @@ import {
   advanceQuarter,
   buildEndgameReport,
   createInitialState,
+  deriveDistributionMetrics,
   getRiskSignal,
   getScenario,
   policyForScenario,
@@ -18,7 +19,6 @@ import {
   deriveEconomicDisplay,
   deriveHouseholdResponses,
   formatNominalBillions,
-  formatPeople,
   type HouseholdResponse,
 } from "./economic-display";
 import { parseSavedRun, RUN_STORAGE_KEY, type SavedRun as Run } from "./run-storage";
@@ -550,6 +550,8 @@ export default function Home() {
   }
 
   const economicDisplay = deriveEconomicDisplay(state, run.baseline, run.history, profile);
+  const distribution = deriveDistributionMetrics(state.quintiles);
+  const baselineDistribution = deriveDistributionMetrics(run.baseline.quintiles);
   const householdResponses = deriveHouseholdResponses(state, policy);
   const maximumQuintileIncome = Math.max(...state.quintiles.map((item) => item.income), 1);
 
@@ -577,7 +579,7 @@ export default function Home() {
         </section>
         <section className="report-score-grid" aria-label="Final score breakdown">
           <MetricCard label="Prosperity" value={`${report.scores.prosperity}/25`} note={`${signed(growth)}% real GDP`} tone={report.scores.prosperity >= 18 ? "positive" : "caution"} />
-          <MetricCard label="Inclusion" value={`${report.scores.inclusion}/25`} note={`${signed(run.baseline.gini - state.gini, 3)} Gini change`} tone={report.scores.inclusion >= 18 ? "positive" : "caution"} />
+          <MetricCard label="Inclusion" value={`${report.scores.inclusion}/25`} note={`${signed(baselineDistribution.gini - distribution.gini, 3)} Gini change`} tone={report.scores.inclusion >= 18 ? "positive" : "caution"} />
           <MetricCard label="Development" value={`${report.scores.development}/25`} note={`${signed(state.hdi - run.baseline.hdi, 3)} HDI change`} tone={report.scores.development >= 18 ? "positive" : "caution"} />
           <MetricCard label="Stability" value={`${report.scores.stability}/25`} note={`${percent(state.inflation)} inflation · ${percent(state.debtGDP)} debt`} tone={report.scores.stability >= 18 ? "positive" : "caution"} />
         </section>
@@ -604,19 +606,19 @@ export default function Home() {
               <span>Nominal GDP estimate <b>{formatNominalBillions(economicDisplay.nominalGDPBillions, profile)}</b></span>
               <span>Tax revenue estimate <b>{formatNominalBillions(economicDisplay.annualizedRevenueBillions, profile)}</b></span>
               <span>Public debt estimate <b>{formatNominalBillions(economicDisplay.publicDebtBillions, profile)}</b></span>
-              <span>Poverty estimate <b>{formatPeople(economicDisplay.povertyEquivalentPeople)}</b></span>
+              <span>Poverty pressure <b>{percent(economicDisplay.povertyPressure)}</b></span>
               <span>Inflation <b>{percent(state.inflation)}</b></span>
               <span>Joblessness <b>{percent(state.unemployment)}</b></span>
-              <span>Inequality <b>{state.gini.toFixed(3)}</b></span>
+              <span>Inequality <b>{distribution.gini.toFixed(3)}</b></span>
               <span>Human development <b>{state.hdi.toFixed(3)}</b></span>
               <span>Debt / GDP <b>{percent(state.debtGDP)}</b></span>
             </div>
-            <p className="model-note">Nominal amounts use the fictional {profile.displayScale.currencyName} display scale. The poverty count is a model-equivalent estimate at a fixed population, not a survey headcount.</p>
+            <p className="model-note">Nominal amounts use the fictional {profile.displayScale.currencyName} display scale. Poverty pressure is a modelled income-gap indicator, not a population count or official survey rate.</p>
           </article>
           <article className="legacy-note">
             <p className="eyebrow">Legacy assessment</p>
             <h2>{profile.motto}</h2>
-            <p>{state.gini < run.baseline.gini ? "The distribution of national gains became more equitable. " : "The distribution of national gains remained an unresolved task. "}{state.hdi > run.baseline.hdi ? "Public capacity strengthened over the term." : "Public capacity did not compound quickly enough to meet the mandate."}</p>
+            <p>{distribution.gini < baselineDistribution.gini ? "The distribution of national gains became more equitable. " : "The distribution of national gains remained an unresolved task. "}{state.hdi > run.baseline.hdi ? "Public capacity strengthened over the term." : "Public capacity did not compound quickly enough to meet the mandate."}</p>
             <button type="button" className="primary-action" onClick={reset}>Lead another nation <span aria-hidden="true">→</span></button>
           </article>
         </section>
@@ -720,8 +722,8 @@ export default function Home() {
                 <MetricCard label="Real GDP growth" value={percent(state.annualGrowth)} note={previousState ? `${signed(state.annualGrowth - previousState.annualGrowth)} pts since last quarter` : "Annualised"} tone={state.annualGrowth >= 2 ? "positive" : "caution"} />
                 <MetricCard label="Price stability" value={percent(state.inflation)} note="Target band: 3–6%" tone={toneFor(state.inflation, 6, 10, true)} />
                 <MetricCard label="Employment" value={percent(state.unemployment)} note="Share of labour force" tone={toneFor(state.unemployment, 8, 11, true)} />
-                <MetricCard label="Inequality" value={state.gini.toFixed(3)} note="Gini coefficient" tone={toneFor(state.gini, 0.44, 0.5, true)} />
-                <MetricCard label="Poverty estimate" value={formatPeople(economicDisplay.povertyEquivalentPeople)} note={`${percent(state.poverty)} model indicator`} tone={toneFor(state.poverty, 25, 35, true)} />
+                <MetricCard label="Inequality" value={distribution.gini.toFixed(3)} note="Gini coefficient" tone={toneFor(distribution.gini, 0.44, 0.5, true)} />
+                <MetricCard label="Poverty pressure" value={percent(economicDisplay.povertyPressure)} note="Modelled income-gap indicator" tone={toneFor(economicDisplay.povertyPressure, 25, 35, true)} />
                 <MetricCard label="Human development" value={state.hdi.toFixed(3)} note={`Health ${state.healthIndex.toFixed(2)} · Education ${state.educationIndex.toFixed(2)}`} tone="positive" />
                 <MetricCard label="Public debt" value={percent(state.debtGDP)} note={`${formatNominalBillions(economicDisplay.publicDebtBillions, profile)} estimated`} tone={toneFor(state.debtGDP, 65, 85, true)} />
               </div>
@@ -788,14 +790,14 @@ export default function Home() {
                 </div>
               </section>
               <section className="policy-block monetary-block">
-                <div className="policy-block-heading"><div><h3>Central bank directive</h3><p>Monetary choices work with a lag and must keep liquidity near real economic needs.</p></div><span>Policy signal</span></div>
+                <div className="policy-block-heading"><div><h3>Central bank directive</h3><p>Rate and liquidity-growth choices shift financial conditions now; their fuller effects on demand and jobs arrive next quarter.</p></div><span>Policy signal</span></div>
                 <div className="double-control">
                   <RangeControl label="Central-bank rate" value={policy.policyRate} min={0} max={25} hint={POLICY_HINTS.policyRate.text} onChange={(value) => updatePolicy((current) => ({ ...current, policyRate: value }))} />
-                  <RangeControl label="Broad-money growth target" value={policy.moneyGrowth} min={-5} max={30} hint={POLICY_HINTS.moneyGrowth.text} onChange={(value) => updatePolicy((current) => ({ ...current, moneyGrowth: value }))} />
+                  <RangeControl label="Liquidity-growth directive" value={policy.moneyGrowth} min={-5} max={30} hint={POLICY_HINTS.moneyGrowth.text} onChange={(value) => updatePolicy((current) => ({ ...current, moneyGrowth: value }))} />
                 </div>
                 <div className="liquidity-summary">
-                  <SignalBar label="Money supply" value={state.moneySupply} detail={state.moneySupply.toFixed(1)} />
-                  <SignalBar label="Money demand" value={state.moneyDemand} detail={state.moneyDemand.toFixed(1)} tone="gold" />
+                  <SignalBar label="Liquidity supply" value={state.moneySupply} detail={state.moneySupply.toFixed(1)} />
+                  <SignalBar label="Liquidity demand" value={state.moneyDemand} detail={state.moneyDemand.toFixed(1)} tone="gold" />
                   <p>Exchange pressure <b>{state.exchangePressure.toFixed(1)}</b> · Capital flow <b>{signed(state.capitalFlow)}</b></p>
                 </div>
               </section>
@@ -836,9 +838,9 @@ export default function Home() {
                 </div>
               </section>
               <div className="society-insight-grid">
-                <article><p className="eyebrow">Household conditions</p><strong>{formatPeople(economicDisplay.povertyEquivalentPeople)}</strong><span>{percent(state.poverty)} poverty indicator · estimated people</span><p>Model-equivalent count at a fixed population. Transfers and public services have the clearest direct effect on lower-income households.</p></article>
+                <article><p className="eyebrow">Household conditions</p><strong>{percent(economicDisplay.povertyPressure)}</strong><span>poverty-pressure / income-gap indicator</span><p>This modelled pressure signal is derived from quintile incomes, not a headcount or official survey rate. Transfers most directly support lower-income households; public services build resilience over time.</p></article>
                 <article><p className="eyebrow">National development</p><strong>{state.hdi.toFixed(3)}</strong><span>human development</span><p>Health, education, and income capacity compound at different speeds across a mandate.</p></article>
-                <p className="model-note society-model-note">The poverty figure is an illustrative threshold measure, not an official survey headcount.</p>
+                <p className="model-note society-model-note">Poverty pressure is a modelled income-gap indicator, not a population count or official survey rate.</p>
               </div>
             </div>
           ) : null}
@@ -878,7 +880,7 @@ export default function Home() {
                 <article className="intel-card exchange-card">
                   <div className="intel-card-heading"><h3>External position</h3><span>Liquidity & trade</span></div>
                   <dl className="external-stats">
-                    <div><dt>Money gap</dt><dd>{signed(state.moneySupply - state.moneyDemand)}</dd></div>
+                    <div><dt>Liquidity gap</dt><dd>{signed(state.moneySupply - state.moneyDemand)}</dd></div>
                     <div><dt>Exchange pressure</dt><dd>{state.exchangePressure.toFixed(1)}</dd></div>
                     <div><dt>Capital flow</dt><dd>{signed(state.capitalFlow)}</dd></div>
                     <div><dt>Credit outlook</dt><dd>{state.creditRating}</dd></div>

@@ -34,10 +34,19 @@ calm, legible, modern, and consequential rather than militaristic or cartoonish.
 
 ## Simulation and compatibility constraints
 
-- Preserve all calculations, exported types, scenario IDs, seeded-event
-  behaviour, end-game scoring, and policy validation in `app/game.ts`.
+- **Approved economist-led calibration exception:** `app/game.ts` equations may
+  be recalibrated only to correct annualised-versus-quarterly fiscal arithmetic
+  and to improve the existing model's debt, household-distribution, monetary,
+  labour-market, capacity, and existing-event transmission. This is a formula
+  calibration, not authorization for a new simulation system.
+- Preserve exported types, scenario IDs, event IDs, seed-to-event selection,
+  event probabilities and forecastability, end-game scoring, and policy
+  validation in `app/game.ts`. Keep the existing ten policy controls; do not
+  add state fields, mechanics, or controls to support calibration work.
 - Preserve the local-storage key `commonwealth-policy-lab-run-v1` and its run
-  shape so an in-progress saved campaign remains loadable after UI work.
+  shape so an in-progress saved campaign remains loadable after calibration.
+  A restored run may use the calibrated equations only when its next quarter
+  resolves; do not rewrite its saved history or migrate its persisted shape.
 - Store tutorial completion only as a separate browser preference under
   `nations-in-balance-tutorial-v1`; it must not alter the saved-run format.
 - Do not introduce a backend, database schema, API routes, authentication

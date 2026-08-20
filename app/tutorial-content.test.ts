@@ -48,6 +48,22 @@ test("the guide explains term goals, validation, resolution, and terminal risks"
   }
 });
 
+test("the guide presents the calibrated model as a lagged teaching model", () => {
+  const copy = TUTORIAL_STEPS.flatMap((step) => [step.title, step.summary, ...step.bullets]).join(" ");
+
+  for (const phrase of [
+    "one-off price effect",
+    "bounded investment and capital-flow incentive",
+    "activity and employment effects arrive with a short lag",
+    "annualised fiscal balance",
+    "Only one quarter of that annual flow enters debt",
+    "Poverty pressure is a modelled income-gap indicator",
+    "transparent teaching model, not a national forecast",
+  ]) {
+    assert.ok(copy.includes(phrase), `expected tutorial copy to include: ${phrase}`);
+  }
+});
+
 test("persistent hints cover every policy control and the allocation validation rule", () => {
   assert.deepEqual(Object.keys(POLICY_HINTS).sort(), [
     "allocationTotal",
@@ -71,6 +87,11 @@ test("persistent hints cover every policy control and the allocation validation 
   assert.match(POLICY_HINTS.allocationTotal.text, /exactly 100%/);
   assert.match(POLICY_HINTS.incomeTaxes.text, /progressive/);
   assert.match(POLICY_HINTS.validation.text, /valid package/);
+  assert.equal(POLICY_HINTS.moneyGrowth.label, "Liquidity-growth directive");
+  assert.match(POLICY_HINTS.moneyGrowth.text, /short lag/);
+  assert.match(POLICY_HINTS.vatRate.text, /one-off pass-through/);
+  assert.match(POLICY_HINTS.corporateRate.text, /bounded/);
+  assert.match(POLICY_HINTS.transfers.text, /poverty pressure/);
 });
 
 test("score benchmarks state the ordinary tiers and the crisis override", () => {
