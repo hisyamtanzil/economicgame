@@ -9,7 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run build && tsx --test app/game.test.ts app/campaign-content.test.ts app/run-storage.test.ts app/tutorial-content.test.ts",
+    "test": "npm run build && tsx --test app/game.test.ts app/campaign-content.test.ts app/economic-display.test.ts app/run-storage.test.ts app/tutorial-content.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

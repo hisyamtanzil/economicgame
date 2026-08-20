@@ -14,6 +14,13 @@ import {
   validatePolicy,
 } from "./game";
 import { ADVISORS, getCampaignProfile } from "./campaign-content";
+import {
+  deriveEconomicDisplay,
+  deriveHouseholdResponses,
+  formatNominalBillions,
+  formatPeople,
+  type HouseholdResponse,
+} from "./economic-display";
 import { parseSavedRun, RUN_STORAGE_KEY, type SavedRun as Run } from "./run-storage";
 import { POLICY_HINTS, SCORE_BENCHMARKS, TUTORIAL_STORAGE_KEY, TUTORIAL_STEPS } from "./tutorial-content";
 
@@ -178,6 +185,33 @@ function CabinetPortrait({ src, alt, className = "" }: { src: string; alt: strin
     <div className={`portrait-frame ${className}`}>
       {image}
     </div>
+  );
+}
+
+function HouseholdResponseDesk({
+  responses,
+  heading = "Household protest watch",
+  context = "Draft policy",
+  compact = false,
+}: {
+  responses: HouseholdResponse[];
+  heading?: string;
+  context?: string;
+  compact?: boolean;
+}) {
+  return (
+    <section className={`household-response-desk ${compact ? "compact" : ""}`} aria-label={heading}>
+      <div className="intel-card-heading"><h3>{heading}</h3><span>{context}</span></div>
+      <ul className="household-response-list">
+        {responses.map((response) => (
+          <li key={response.id}>
+            <div><b>{response.label}</b><span className={response.tone}>{response.signal}</span></div>
+            <p>{response.explanation}</p>
+          </li>
+        ))}
+      </ul>
+      <p className="model-note">A presentation-only policy signal. It does not alter unrest, events, scores, or the saved campaign.</p>
+    </section>
   );
 }
 
@@ -515,6 +549,10 @@ export default function Home() {
     );
   }
 
+  const economicDisplay = deriveEconomicDisplay(state, run.baseline, run.history, profile);
+  const householdResponses = deriveHouseholdResponses(state, policy);
+  const maximumQuintileIncome = Math.max(...state.quintiles.map((item) => item.income), 1);
+
   if (isComplete) {
     const report = buildEndgameReport(state, run.baseline, run.crisis);
     const growth = ((state.realGDP / run.baseline.realGDP) - 1) * 100;
@@ -562,13 +600,18 @@ export default function Home() {
           <article>
             <p className="eyebrow">Final national indicators</p>
             <div className="final-metric-grid">
-              <span>GDP / capita <b>{signed(growth)}%</b></span>
+              <span>Real GDP change <b>{signed(growth)}%</b></span>
+              <span>Nominal GDP estimate <b>{formatNominalBillions(economicDisplay.nominalGDPBillions, profile)}</b></span>
+              <span>Tax revenue estimate <b>{formatNominalBillions(economicDisplay.annualizedRevenueBillions, profile)}</b></span>
+              <span>Public debt estimate <b>{formatNominalBillions(economicDisplay.publicDebtBillions, profile)}</b></span>
+              <span>Poverty estimate <b>{formatPeople(economicDisplay.povertyEquivalentPeople)}</b></span>
               <span>Inflation <b>{percent(state.inflation)}</b></span>
               <span>Joblessness <b>{percent(state.unemployment)}</b></span>
               <span>Inequality <b>{state.gini.toFixed(3)}</b></span>
               <span>Human development <b>{state.hdi.toFixed(3)}</b></span>
               <span>Debt / GDP <b>{percent(state.debtGDP)}</b></span>
             </div>
+            <p className="model-note">Nominal amounts use the fictional {profile.displayScale.currencyName} display scale. The poverty count is a model-equivalent estimate at a fixed population, not a survey headcount.</p>
           </article>
           <article className="legacy-note">
             <p className="eyebrow">Legacy assessment</p>
@@ -602,7 +645,7 @@ export default function Home() {
           </div>
         </div>
         <div className="resource-ribbon" aria-label="National resource indicators">
-          <div><span>Growth</span><b className={state.annualGrowth >= 2 ? "positive" : "caution"}>{percent(state.annualGrowth)}</b></div>
+          <div><span>Nominal GDP</span><b>{formatNominalBillions(economicDisplay.nominalGDPBillions, profile)}</b></div>
           <div><span>Inflation</span><b className={toneFor(state.inflation, 6, 10, true)}>{percent(state.inflation)}</b></div>
           <div><span>Debt</span><b className={toneFor(state.debtGDP, 65, 85, true)}>{percent(state.debtGDP)}</b></div>
           <div><span>Confidence</span><b className={toneFor(state.confidence, 55, 40)}>{state.confidence.toFixed(0)}</b></div>
@@ -673,12 +716,14 @@ export default function Home() {
                 action={<span className="section-badge">{state.creditRating} credit outlook</span>}
               />
               <div className="metric-grid command-metrics">
+                <MetricCard label="Nominal GDP estimate" value={formatNominalBillions(economicDisplay.nominalGDPBillions, profile)} note={`${profile.displayScale.currencyName} · model-based`} />
                 <MetricCard label="Real GDP growth" value={percent(state.annualGrowth)} note={previousState ? `${signed(state.annualGrowth - previousState.annualGrowth)} pts since last quarter` : "Annualised"} tone={state.annualGrowth >= 2 ? "positive" : "caution"} />
                 <MetricCard label="Price stability" value={percent(state.inflation)} note="Target band: 3–6%" tone={toneFor(state.inflation, 6, 10, true)} />
                 <MetricCard label="Employment" value={percent(state.unemployment)} note="Share of labour force" tone={toneFor(state.unemployment, 8, 11, true)} />
                 <MetricCard label="Inequality" value={state.gini.toFixed(3)} note="Gini coefficient" tone={toneFor(state.gini, 0.44, 0.5, true)} />
+                <MetricCard label="Poverty estimate" value={formatPeople(economicDisplay.povertyEquivalentPeople)} note={`${percent(state.poverty)} model indicator`} tone={toneFor(state.poverty, 25, 35, true)} />
                 <MetricCard label="Human development" value={state.hdi.toFixed(3)} note={`Health ${state.healthIndex.toFixed(2)} · Education ${state.educationIndex.toFixed(2)}`} tone="positive" />
-                <MetricCard label="Public debt" value={percent(state.debtGDP)} note={`${percent(state.deficitGDP)} fiscal balance`} tone={toneFor(state.debtGDP, 65, 85, true)} />
+                <MetricCard label="Public debt" value={percent(state.debtGDP)} note={`${formatNominalBillions(economicDisplay.publicDebtBillions, profile)} estimated`} tone={toneFor(state.debtGDP, 65, 85, true)} />
               </div>
               <div className="command-panels">
                 <article className="national-outlook">
@@ -711,6 +756,15 @@ export default function Home() {
                 copy="Revenue must fund capability without undermining demand, investment, or confidence."
                 action={<span className="section-badge">{percent(policy.spendingGDP)} primary spending</span>}
               />
+              <section className="fiscal-ledger" aria-label="Modelled fiscal ledger">
+                <div className="policy-block-heading"><div><h3>Fiscal ledger</h3><p>Nominal estimates make the model’s GDP ratios easier to read in a shared fictional currency.</p></div><span>Illustrative scale</span></div>
+                <div className="metric-grid fiscal-ledger-grid">
+                  <MetricCard label="Nominal GDP" value={formatNominalBillions(economicDisplay.nominalGDPBillions, profile)} note={`${profile.displayScale.currencyName} estimate`} />
+                  <MetricCard label="Tax revenue" value={formatNominalBillions(economicDisplay.annualizedRevenueBillions, profile)} note={`${percent(state.revenueGDP)} of nominal GDP · annualised`} />
+                  <MetricCard label="Public debt" value={formatNominalBillions(economicDisplay.publicDebtBillions, profile)} note={`${percent(state.debtGDP)} of nominal GDP`} tone={toneFor(state.debtGDP, 65, 85, true)} />
+                </div>
+                <p className="model-note">These figures are display estimates derived from GDP and fiscal ratios; they are not a calibrated national accounts forecast.</p>
+              </section>
               <section className="policy-block">
                 <div className="policy-block-heading"><div><h3>Income tax code</h3><p>Maintain a progressive schedule while matching the country’s capacity to raise revenue.</p></div><span>Rates</span></div>
                 <p className="policy-guidance"><b>{POLICY_HINTS.incomeTaxes.label}.</b> {POLICY_HINTS.incomeTaxes.text}</p>
@@ -782,8 +836,9 @@ export default function Home() {
                 </div>
               </section>
               <div className="society-insight-grid">
-                <article><p className="eyebrow">Household conditions</p><strong>{percent(state.poverty)}</strong><span>estimated poverty</span><p>Transfers and public services have the clearest direct effect on lower-income households.</p></article>
+                <article><p className="eyebrow">Household conditions</p><strong>{formatPeople(economicDisplay.povertyEquivalentPeople)}</strong><span>{percent(state.poverty)} poverty indicator · estimated people</span><p>Model-equivalent count at a fixed population. Transfers and public services have the clearest direct effect on lower-income households.</p></article>
                 <article><p className="eyebrow">National development</p><strong>{state.hdi.toFixed(3)}</strong><span>human development</span><p>Health, education, and income capacity compound at different speeds across a mandate.</p></article>
+                <p className="model-note society-model-note">The poverty figure is an illustrative threshold measure, not an official survey headcount.</p>
               </div>
             </div>
           ) : null}
@@ -802,7 +857,7 @@ export default function Home() {
                   <div className="quintile-bars">{state.quintiles.map((item) => (
                     <div key={item.label}>
                       <span>{item.label.replace(" 20%", "")}</span>
-                      <i><em style={{ width: `${Math.min(100, item.income / state.quintiles[4].income * 100)}%` }} /></i>
+                      <i><em style={{ width: `${Math.min(100, item.income / maximumQuintileIncome * 100)}%` }} /></i>
                       <b>{item.income.toFixed(0)}</b>
                     </div>
                   ))}</div>
@@ -829,6 +884,7 @@ export default function Home() {
                     <div><dt>Credit outlook</dt><dd>{state.creditRating}</dd></div>
                   </dl>
                 </article>
+                <HouseholdResponseDesk responses={householdResponses} />
               </div>
             </div>
           ) : null}
@@ -888,6 +944,12 @@ export default function Home() {
                 <div key={advisor.id}><span>{advisor.role}</span><p>{cabinetAdvice[index] ?? cabinetAdvice[cabinetAdvice.length - 1]}</p></div>
               ))}
             </section>
+            <HouseholdResponseDesk
+              responses={deriveHouseholdResponses(state, run.lastResult.effectivePolicy)}
+              heading="Household policy response"
+              context="Resolved package"
+              compact
+            />
             {run.lastResult.constrained ? <p className="constraint-notice">Emergency conditions constrained the scale of this quarter’s policy changes.</p> : null}
             <footer>
               <span>National record updated automatically.</span>

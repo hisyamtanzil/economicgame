@@ -15,6 +15,10 @@ test("every simulation scenario has a compatible campaign presentation profile",
     assert.ok(profile.leaderTitle.length > 0);
     assert.match(profile.portrait, /^\/portraits\/leader-[a-z]+\.png$/);
     assert.ok(profile.motto.length > 0);
+    assert.match(profile.displayScale.currencyCode, /^[A-Z]{2,3}$/);
+    assert.ok(profile.displayScale.currencyName.length > 0);
+    assert.ok(profile.displayScale.baseNominalGDPBillions > 0);
+    assert.ok(profile.displayScale.fixedPopulationMillions > 0);
   }
 });
 

@@ -13,6 +13,17 @@ export type CampaignProfile = {
   /** CSS-safe visual accent token for the campaign header and indicators. */
   accent: "aqua" | "amber" | "coral";
   summary?: string;
+  /**
+   * Fictional display anchors used only to turn the simulation's index and
+   * ratio outputs into legible nominal estimates. They are never read by the
+   * game model or persisted in a saved run.
+   */
+  displayScale: {
+    currencyCode: string;
+    currencyName: string;
+    baseNominalGDPBillions: number;
+    fixedPopulationMillions: number;
+  };
 };
 
 export type AdvisorProfile = {
@@ -32,6 +43,12 @@ export const CAMPAIGN_PROFILES: Record<string, CampaignProfile> = {
     motto: "Prosperity, deliberately shared.",
     accent: "aqua",
     summary: "A capable republic where stable growth has yet to reach every household.",
+    displayScale: {
+      currencyCode: "AC",
+      currencyName: "Aster crowns",
+      baseNominalGDPBillions: 612.4,
+      fixedPopulationMillions: 31.8,
+    },
   },
   veyra: {
     leaderName: "President Samira Kade",
@@ -40,6 +57,12 @@ export const CAMPAIGN_PROFILES: Record<string, CampaignProfile> = {
     motto: "Build the systems that widen opportunity.",
     accent: "amber",
     summary: "A fast-moving federation balancing weak public services with restless ambition.",
+    displayScale: {
+      currencyCode: "VM",
+      currencyName: "Veyran marks",
+      baseNominalGDPBillions: 496.8,
+      fixedPopulationMillions: 46.4,
+    },
   },
   nambara: {
     leaderName: "Premier Tomas Nwosu",
@@ -48,6 +71,12 @@ export const CAMPAIGN_PROFILES: Record<string, CampaignProfile> = {
     motto: "Restore trust. Secure the recovery.",
     accent: "coral",
     summary: "A fragile recovery where credibility, prices, and development are all under pressure.",
+    displayScale: {
+      currencyCode: "NS",
+      currencyName: "Nambaran sols",
+      baseNominalGDPBillions: 284.6,
+      fixedPopulationMillions: 34.2,
+    },
   },
 };
 

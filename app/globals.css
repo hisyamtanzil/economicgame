@@ -506,8 +506,9 @@ button:focus-visible, input:focus-visible {
   margin-top: .19rem;
   color: #edf4ef;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 1.1rem;
+  font-size: clamp(.78rem, 1.25vw, 1.1rem);
   font-weight: 400;
+  white-space: nowrap;
 }
 
 .positive { color: var(--cyan) !important; }
@@ -793,6 +794,10 @@ button:focus-visible, input:focus-visible {
 
 .policy-block { border-top: 1px solid var(--line-strong); padding: 1.45rem 0; }
 .policy-block:first-of-type { border-top: 0; padding-top: .2rem; }
+.fiscal-ledger { margin: -.25rem 0 .15rem; border: 1px solid var(--line); padding: .95rem; background: linear-gradient(135deg, rgba(72, 146, 140, .1), rgba(12, 31, 41, .9)); }
+.fiscal-ledger-grid { margin-top: .9rem; }
+.fiscal-ledger-grid .metric-card { background: rgba(12, 31, 41, .8); }
+.model-note { margin: .85rem 0 0; color: #809891; font-size: .58rem; line-height: 1.48; }
 .policy-block-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .policy-block-heading h3 { margin: 0; color: #e9ede6; font-family: Georgia, "Times New Roman", serif; font-size: 1.22rem; font-weight: 400; }
 .policy-block-heading p { max-width: 32rem; margin: .33rem 0 0; color: #92a8a1; font-size: .69rem; line-height: 1.5; }
@@ -844,6 +849,7 @@ button:focus-visible, input:focus-visible {
 .society-insight-grid strong { display: inline-block; margin: .58rem .35rem .6rem 0; color: var(--gold); font-family: Georgia, "Times New Roman", serif; font-size: 2.2rem; font-weight: 400; letter-spacing: -.05em; }
 .society-insight-grid span { color: #8fa8a1; font-size: .61rem; letter-spacing: .03em; }
 .society-insight-grid > article > p:last-child { margin: .25rem 0 0; color: #9aaea8; font-size: .66rem; line-height: 1.5; }
+.society-model-note { grid-column: 1 / -1; margin: -.15rem .1rem 0; }
 
 .intelligence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .85rem; }
 .intel-card { min-height: 11.5rem; }
@@ -852,6 +858,19 @@ button:focus-visible, input:focus-visible {
 .intel-card-heading > span { color: #839d96; font-size: .56rem; text-align: right; }
 .intel-card .signal-bar { margin-top: 1rem; }
 .intel-card > p { margin-top: .85rem; }
+
+.household-response-desk { min-width: 0; border: 1px solid var(--line); padding: 1rem; background: linear-gradient(145deg, rgba(22, 51, 60, .94), rgba(12, 31, 41, .94)); }
+.household-response-list { display: grid; gap: .65rem; margin: .95rem 0 0; padding: 0; list-style: none; }
+.household-response-list li { border-top: 1px solid rgba(184, 210, 203, .12); padding-top: .62rem; }
+.household-response-list li:first-child { border-top: 0; padding-top: 0; }
+.household-response-list li > div { display: flex; align-items: start; justify-content: space-between; gap: .7rem; }
+.household-response-list b { color: #dce9e3; font-size: .64rem; font-weight: 700; }
+.household-response-list span { flex: 0 0 auto; font-size: .54rem; font-weight: 700; letter-spacing: .045em; text-align: right; text-transform: uppercase; }
+.household-response-list p { margin: .24rem 0 0; color: #91a8a1; font-size: .62rem; line-height: 1.45; }
+.briefing-dialog .household-response-desk { margin-top: 1.1rem; }
+.household-response-desk.compact { padding: .9rem; }
+.household-response-desk.compact .household-response-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
+.household-response-desk.compact .household-response-list li:not(:first-child) { border-top: 0; border-left: 1px solid rgba(184, 210, 203, .12); padding-top: 0; padding-left: .65rem; }
 
 .quintile-bars { display: grid; gap: .6rem; margin-top: 1.05rem; }
 .quintile-bars > div { display: grid; grid-template-columns: 3.6rem minmax(0, 1fr) 2.25rem; gap: .45rem; align-items: center; }
@@ -1184,6 +1203,8 @@ button:focus-visible, input:focus-visible {
   .briefing-backdrop { align-items: start; padding: .7rem; }
   .briefing-dialog { margin-top: .4rem; }
   .briefing-counsel > div { grid-template-columns: 1fr; gap: .3rem; }
+  .household-response-desk.compact .household-response-list { grid-template-columns: 1fr; }
+  .household-response-desk.compact .household-response-list li:not(:first-child) { border-top: 1px solid rgba(184, 210, 203, .12); border-left: 0; padding-top: .62rem; padding-left: 0; }
   .briefing-dialog > footer { display: block; }
   .briefing-dialog > footer .primary-action { width: 100%; justify-content: space-between; margin-top: .8rem; }
   .guide-backdrop { align-items: start; padding: .7rem; }
